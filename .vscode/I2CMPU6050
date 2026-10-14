@@ -1,0 +1,182 @@
+#include <Wire.h>
+#include <math.h>
+
+const int MPU_ADDR=0x68; //I2C address of the MPU-6050
+const int PWR_6050=0x6B; //power management register
+
+struct MPU6050_data{
+    float AccelX_g;
+    float AccelY_g;
+    float AccelZ_g;
+    float Temp_c;
+    float GyroX_x;
+    float GyroY_x;
+    float GyroZ_x;
+};
+
+struct Tilt_Angle
+{
+    float pitch;
+    float roll;
+};
+
+float GyroX_offset=0;
+float GyroY_offset=0;
+float GyroZ_offset=0;
+
+
+void setup()
+{
+    Serial.begin(115200);
+    Wire.begin(20,21);//(SDA,SCL)
+
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(PWR_6050);
+    Wire.write(0x00);
+    uint8_t status1 = Wire.endTransmission(true);
+    Serial.print("Status1:");
+    Serial.println(status1);
+    /*-----------------------------
+    set tinh chuan thong so goc
+    -----------------------------*/
+    float sumGyroX=0;
+    float sumGyroY=0;
+    float sumGyroZ=0;
+
+    int solandoc=500;
+
+    for(int i=0;i<solandoc;i++)
+    {
+        MPU6050_data temp = readMPU6050();
+
+        sumGyroX = sumGyroX + temp.GyroX_x;
+        sumGyroY = sumGyroY + temp.GyroY_x;
+        sumGyroZ = sumGyroZ + temp.GyroZ_x;
+    }
+
+    GyroX_offset = sumGyroX / solandoc;
+    GyroY_offset = sumGyroY / solandoc;
+    GyroZ_offset = sumGyroZ / solandoc;
+
+    Serial.print("GyroX Offset: "); Serial.println(GyroX_offset);
+    Serial.print("GyroY Offset: "); Serial.println(GyroY_offset);
+    Serial.print("GyroZ Offset: "); Serial.println(GyroZ_offset);
+
+}
+
+
+MPU6050_data readMPU6050()
+{
+    MPU6050_data results;
+
+    uint8_t buffer[14];
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x3B);
+    uint8_t status2 = Wire.endTransmission(false);
+    Serial.print("Status2: ");
+    Serial.println(status2);
+
+    Wire.requestFrom(MPU_ADDR,14);
+    uint8_t i = 0;
+    while(Wire.available() && i<14)
+    {
+        buffer[i]= Wire.read();
+        Serial.print("MPU-6050 ID: ");
+        Serial.println(buffer[i],HEX);
+         i++;
+    }
+    int16_t AccelX = (buffer[0]<< 8 | buffer[1]);
+    int16_t AccelY = (buffer[2]<< 8 | buffer[3]);
+    int16_t AccelZ = (buffer[4]<< 8 | buffer[5]);
+
+    int16_t Temp = (buffer[6]<< 8 | buffer[7]);
+
+    int16_t GyroX = (buffer[8]<< 8 | buffer[9] );
+    int16_t GyroY = (buffer[10]<< 8| buffer[11]);
+    int16_t GyroZ = (buffer[12]<< 8| buffer[13]);
+
+    Serial.print("AccelX: ");
+    Serial.println(AccelX);
+    Serial.print("AccelY: ");
+    Serial.println(AccelY);
+    Serial.print("AccelZ: ");
+    Serial.println(AccelZ);
+    Serial.print("Temp: ");
+    Serial.println(Temp);
+    Serial.print("GyroX: ");
+    Serial.println(GyroX);
+    Serial.print("GyroY: ");
+    Serial.println(GyroY);
+    Serial.print("GyroZ: ");
+    Serial.println(GyroZ);
+    //theo datasheet
+    //Accelerometer: ±2g, hệ số chia (scale factor) là 16384 LSB/g
+    //Gyroscope: ±250°/s, hệ số chia là 131 LSB/(°/s)
+    //Temperature_C = (Temp_raw / 340.0) + 36.53
+
+    results.AccelX_g = AccelX/16384.0;    Serial.print("AccelX_g: "); Serial.println(results.AccelX_g);
+    results.AccelY_g = AccelY/16384.0;    Serial.print("AccelY_g: "); Serial.println(results.AccelY_g);
+    results.AccelZ_g = AccelZ/16384.0;    Serial.print("AccelZ_g: "); Serial.println(results.AccelZ_g);
+
+    results.Temp_c = (Temp / 340.0) + 36.53;     Serial.print("Temp_c: "); Serial.println(results.Temp_c);
+
+    results.GyroX_x = GyroX/131.0;        Serial.print("GyroX_x: "); Serial.println(results.GyroX_x);
+    results.GyroY_x = GyroY/131.0;        Serial.print("GyroY_x: "); Serial.println(results.GyroY_x);
+    results.GyroZ_x = GyroZ/131.0;        Serial.print("GyroZ_x: "); Serial.println(results.GyroZ_x);
+    //delay(1000);
+    return results;
+}
+
+
+Tilt_Angle tinhgocnghieng(MPU6050_data Sensor)      //phai them tham so dau vao, kieu tham so dau vao la MPU6050_data, va ten tham so la sensor.
+{                                                   //de co the lay truc tiep du lieu tu MPU6050
+
+    Tilt_Angle tilt;
+
+    tilt.pitch=atan2(Sensor.AccelX_g,sqrt(pow(Sensor.AccelY_g,2)+pow(Sensor.AccelZ_g,2)))*180/M_PI;          //cong thuc tinh goc nghieng truoc/sau, dung ham atan2();,nhung phai *180/pi de chuyen tu gia tri radian ve do C. vi ham atan2(); se tra ve gia tri radian.
+    tilt.roll =atan2(Sensor.AccelY_g,sqrt(pow(Sensor.AccelX_g,2)+pow(Sensor.AccelZ_g,2)))*180/M_PI;          //cong thuc tinh goc nghieng trai/phai,    ''                      ''                       ''                        ''
+
+    Serial.print("Pitch:"); Serial.println(tilt.pitch);
+    Serial.print("Roll:") ; Serial.println(tilt.roll) ;
+    return tilt;
+}
+
+
+float deltatime()
+{
+    static unsigned long beforeTime = 0;
+    unsigned long afterTime = millis();
+
+    if(beforeTime==0)
+    {
+        beforeTime=afterTime;
+
+        return 0.0f;
+    }
+    float dt= (afterTime-beforeTime)/1000.0f;
+    beforeTime = afterTime;
+
+    return dt;
+}
+
+void loop()
+{
+   MPU6050_data sensor = readMPU6050();
+   Tilt_Angle Inclination = tinhgocnghieng(sensor);              //sensor o day la bien minh khai bao trong ham MPU6050_data sensor.
+   Serial.print(sensor.Temp_c);
+
+    float GyroX_calibrated = sensor.GyroX_x-GyroX_offset;
+    float GyroY_calibrated = sensor.GyroY_x-GyroY_offset;
+    float GyroZ_calibrated = sensor.GyroZ_x-GyroZ_offset;
+    Serial.print("GyroX_calibrated: "); Serial.println(GyroX_calibrated);
+    Serial.print("GyroY_calibrated: "); Serial.println(GyroY_calibrated);
+    Serial.print("GyroZ_calibrated: "); Serial.println(GyroZ_calibrated);
+    delay(2000);
+
+    float dtTime=deltatime();
+
+    if(dtTime<=0.0f)
+    {
+        return;
+    }
+}
